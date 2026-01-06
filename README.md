@@ -38,6 +38,7 @@
 * 项目所有核心算法代码均从0使用PyTorch原生重构！不依赖第三方库提供的抽象接口。
 * 这不仅是大语言模型的全阶段开源复现，也是一个入门LLM的教程。
 * 希望此项目能为所有人提供一个抛砖引玉的示例，一起感受创造的乐趣！推动更广泛AI社区的进步！
+* 经过对于脚本程序的修改，已经在 AMD RYZEN AI MAX+ 395 w/ Radeon 8060S 上完成基础训练及测试，其他功能暂未测试和修改。
 
 > 为防止误解，“2小时” 基于NVIDIA 3090硬件设备（单卡）测试，“3块钱”指GPU服务器租用成本，具体规格详情见下文。
 
@@ -124,6 +125,10 @@
 希望此开源项目可以帮助LLM初学者快速入门！
 
 ### 👉**更新日志**
+<details close> 
+<summary> <b>2026-1-6</b> </summary>
+修改代码适配AMD显卡和ROCM
+</details>
 
 <details close> 
 <summary> <b>2025-10-24</b> </summary>
@@ -210,15 +215,41 @@ MiniMind2系列旧模型均经过权重映射+（微调训练）QKVO线性层校
 <details style="color:rgb(128,128,128)">
 <summary>分享本人的软硬件配置（仅供参考）</summary>
 
-* CPU: Intel(R) Core(TM) i9-10980XE CPU @ 3.00GHz
+* CPU: AMD RYZEN AI MAX+395
 * RAM: 128 GB
-* GPU: NVIDIA GeForce RTX 3090(24GB) * 8
-* Ubuntu==20.04
-* CUDA==12.2
-* Python==3.10.16
-* [requirements.txt](./requirements.txt)
+* GPU: AMD Radeon(TM)8060S Graphics
+* Windows 11==25H2 (26200.7462)
+* ROCM==7.10.0
+* Adrenalin Edition==25.12.1
+* Python==3.12.10
+
 
 </details>
+
+## 环境配置（ROCm + PyTorch）
+
+> 说明：以下命令按顺序执行即可。建议在 **全新虚拟环境** 中安装（如 `venv/conda`）。 <span style="color:#d32f2f; font-size:1.25em; font-weight:700;">
+
+>  <span style="color:#d32f2f; font-size:1.25em; font-weight:700;"> 重要：经测试，截至 2026 年 1 月 6 日，训练环境必须使用 Python 3.12（否则无法训练）。</span>
+
+### 1）安装 ROCm Python
+
+```bash
+python -m pip install --index-url https://repo.amd.com/rocm/whl/gfx1151/ "rocm[libraries,devel]"
+```
+
+### 2）验证 ROCm SDK 与 HIP 设备信息
+
+```bash
+rocm-sdk test
+hipinfo
+```
+
+### 3）安装 PyTorch（ROCm 版本）
+
+```bash
+python -m pip install --index-url https://repo.amd.com/rocm/whl/gfx1151/ torch torchvision torchaudio
+```
 
 ### 第0步
 
