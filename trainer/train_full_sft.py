@@ -8,7 +8,24 @@ import argparse
 import time
 import warnings
 import torch
-import torch.distributed as dist
+# --- distributed 兼容：某些 Windows/AMD 的 torch 构建可能缺失 torch.distributed 的部分 API ---
+try:
+    import torch.distributed as dist
+except Exception:
+    dist = None
+
+def dist_is_initialized() -> bool:
+    return (dist is not None) and hasattr(dist, "is_initialized") and dist.is_initialized()
+
+def dist_get_rank() -> int:
+    if dist_is_initialized() and hasattr(dist, "get_rank"):
+        return dist.get_rank()
+    return 0
+
+def dist_destroy():
+    if dist_is_initialized() and hasattr(dist, "destroy_process_group"):
+        dist.destroy_process_group()
+
 from contextlib import nullcontext
 from torch import optim, nn
 from torch.nn.parallel import DistributedDataParallel
@@ -109,10 +126,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # ========== 1. 初始化环境和随机种子 ==========
-    local_rank = init_distributed_mode()
-    if dist.is_initialized(): args.device = f"cuda:{local_rank}"
-    setup_seed(42 + (dist.get_rank() if dist.is_initialized() else 0))
-    
+    try:
+        local_rank = init_distributed_mode()
+    except Exception:
+        # 当前 torch.distributed 不完整 / Windows 环境不支持时，退化为单进程
+        local_rank = 0
+
+    if dist_is_initialized():
+        args.device = f"cuda:{local_rank}"
+
+    setup_seed(42 + dist_get_rank())
+
     # ========== 2. 配置目录、模型参数、检查ckp ==========
     os.makedirs(args.save_dir, exist_ok=True)
     lm_config = MiniMindConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers, use_moe=bool(args.use_moe))
@@ -135,7 +159,7 @@ if __name__ == "__main__":
     # ========== 5. 定义模型、数据、优化器 ==========
     model, tokenizer = init_model(lm_config, args.from_weight, device=args.device)
     train_ds = SFTDataset(args.data_path, tokenizer, max_length=args.max_seq_len)
-    train_sampler = DistributedSampler(train_ds) if dist.is_initialized() else None
+    train_sampler = DistributedSampler(train_ds) if dist_is_initialized() else None
     scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype == 'float16'))
     optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
     
@@ -149,7 +173,7 @@ if __name__ == "__main__":
         start_step = ckp_data.get('step', 0)
     
     # ========== 7. DDP包模型 ==========
-    if dist.is_initialized():
+    if dist_is_initialized():
         model._ddp_params_and_buffers_to_ignore = {"freqs_cos", "freqs_sin"}
         model = DistributedDataParallel(model, device_ids=[local_rank])
     
@@ -166,4 +190,4 @@ if __name__ == "__main__":
             train_epoch(epoch, loader, len(loader), 0, wandb)
     
     # ========== 9. 清理分布进程 ==========
-    if dist.is_initialized(): dist.destroy_process_group()
+    if dist_is_initialized(): dist.destroy_process_group()
