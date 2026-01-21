@@ -71,6 +71,7 @@ def dist_destroy():
         dist.destroy_process_group()
 
 
+from torch.nn.parallel import DistributedDataParallel
 from torch.utils.data import Sampler
 from transformers import AutoTokenizer
 from model.model_minimind import MiniMindForCausalLM
@@ -202,11 +203,9 @@ def lm_checkpoint(
 
     # ---------------- 保存模式 ----------------
     if model is not None:
-        from torch.nn.parallel import DistributedDataParallel
-
-        # 1) 获取 state_dict（DDP 取 module）
-        state_dict = model.module.state_dict() if isinstance(model, DistributedDataParallel) else model.state_dict()
-        # 2) 转 half + cpu，节省磁盘
+        raw_model = model.module if isinstance(model, DistributedDataParallel) else model
+        raw_model = getattr(raw_model, '_orig_mod', raw_model)
+        state_dict = raw_model.state_dict()
         state_dict = {k: v.half().cpu() for k, v in state_dict.items()}
 
         # 3) 原子写入模型权重
@@ -240,12 +239,11 @@ def lm_checkpoint(
         for key, value in kwargs.items():
             if value is None:
                 continue
+                
             if hasattr(value, 'state_dict'):
-                # 特判 DDP 包裹对象（不常见，但保持兼容）
-                if isinstance(value, DistributedDataParallel):
-                    resume_data[key] = value.module.state_dict()
-                else:
-                    resume_data[key] = value.state_dict()
+                raw_value = value.module if isinstance(value, DistributedDataParallel) else value
+                raw_value = getattr(raw_value, '_orig_mod', raw_value)
+                resume_data[key] = raw_value.state_dict()
             else:
                 resume_data[key] = value
 
